@@ -1,207 +1,293 @@
+// Copyright © 2023 OpenIM SDK. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package user
 
 import (
+	"context"
 	"fmt"
-	"github.com/google/go-cmp/cmp"
-	comm "open_im_sdk/internal/common"
+	"open_im_sdk/internal/util"
 	"open_im_sdk/pkg/db/db_interface"
 	"open_im_sdk/pkg/db/model_struct"
+	"open_im_sdk/pkg/sdkerrs"
+	"open_im_sdk/pkg/syncer"
 
-	//"github.com/mitchellh/mapstructure"
-	ws "open_im_sdk/internal/interaction"
+	authPb "github.com/OpenIMSDK/protocol/auth"
+	"github.com/OpenIMSDK/protocol/sdkws"
+	userPb "github.com/OpenIMSDK/protocol/user"
+	"github.com/OpenIMSDK/tools/log"
+
+	PbConstant "github.com/OpenIMSDK/protocol/constant"
 	"open_im_sdk/open_im_sdk_callback"
 	"open_im_sdk/pkg/common"
 	"open_im_sdk/pkg/constant"
-	"open_im_sdk/pkg/log"
-	sdk "open_im_sdk/pkg/sdk_params_callback"
-	api "open_im_sdk/pkg/server_api_params"
 	"open_im_sdk/pkg/utils"
-	"open_im_sdk/sdk_struct"
 )
 
+// User is a struct that represents a user in the system.
 type User struct {
 	db_interface.DataBase
-	p              *ws.PostApi
 	loginUserID    string
 	listener       open_im_sdk_callback.OnUserListener
 	loginTime      int64
+	userSyncer     *syncer.Syncer[*model_struct.LocalUser, string]
 	conversationCh chan common.Cmd2Value
 }
 
+// LoginTime gets the login time of the user.
 func (u *User) LoginTime() int64 {
 	return u.loginTime
 }
 
+// SetLoginTime sets the login time of the user.
 func (u *User) SetLoginTime(loginTime int64) {
 	u.loginTime = loginTime
 }
 
+// SetListener sets the user's listener.
 func (u *User) SetListener(listener open_im_sdk_callback.OnUserListener) {
 	u.listener = listener
 }
 
-func NewUser(dataBase db_interface.DataBase, p *ws.PostApi, loginUserID string, conversationCh chan common.Cmd2Value) *User {
-	return &User{DataBase: dataBase, p: p, loginUserID: loginUserID, conversationCh: conversationCh}
+// NewUser creates a new User object.
+func NewUser(dataBase db_interface.DataBase, loginUserID string, conversationCh chan common.Cmd2Value) *User {
+	user := &User{DataBase: dataBase, loginUserID: loginUserID, conversationCh: conversationCh}
+	user.initSyncer()
+	return user
 }
 
-func (u *User) DoNotification(msg *api.MsgData) {
-	operationID := utils.OperationIDGenerator()
-	log.NewInfo(operationID, utils.GetSelfFuncName(), "args: ", msg)
+func (u *User) initSyncer() {
+	u.userSyncer = syncer.New(
+		func(ctx context.Context, value *model_struct.LocalUser) error {
+			return u.InsertLoginUser(ctx, value)
+		},
+		func(ctx context.Context, value *model_struct.LocalUser) error {
+			return fmt.Errorf("not support delete user %s", value.UserID)
+		},
+		func(ctx context.Context, serverUser, localUser *model_struct.LocalUser) error {
+			return u.DataBase.UpdateLoginUser(context.Background(), serverUser)
+		},
+		func(user *model_struct.LocalUser) string {
+			return user.UserID
+		},
+		nil,
+		func(ctx context.Context, state int, server, local *model_struct.LocalUser) error {
+			if u.listener == nil {
+				return nil
+			}
+			switch state {
+			case syncer.Update:
+				u.listener.OnSelfInfoUpdated(utils.StructToJsonString(server))
+				if server.Nickname != local.Nickname || server.FaceURL != local.FaceURL {
+					_ = common.TriggerCmdUpdateMessage(ctx, common.UpdateMessageNode{Action: constant.UpdateMsgFaceUrlAndNickName,
+						Args: common.UpdateMessageInfo{UserID: server.UserID, FaceURL: server.FaceURL, Nickname: server.Nickname}}, u.conversationCh)
+				}
+			}
+			return nil
+		},
+	)
+}
+
+//func (u *User) equal(a, b *model_struct.LocalUser) bool {
+//	if a.CreateTime != b.CreateTime {
+//		log.ZDebug(context.Background(), "user equal", "a", a.CreateTime, "b", b.CreateTime)
+//	}
+//	if a.UserID != b.UserID {
+//		log.ZDebug(context.Background(), "user equal", "a", a.UserID, "b", b.UserID)
+//	}
+//	if a.Ex != b.Ex {
+//		log.ZDebug(context.Background(), "user equal", "a", a.Ex, "b", b.Ex)
+//	}
+//
+//	if a.Nickname != b.Nickname {
+//		log.ZDebug(context.Background(), "user equal", "a", a.Nickname, "b", b.Nickname)
+//	}
+//	if a.FaceURL != b.FaceURL {
+//		log.ZDebug(context.Background(), "user equal", "a", a.FaceURL, "b", b.FaceURL)
+//	}
+//	if a.AttachedInfo != b.AttachedInfo {
+//		log.ZDebug(context.Background(), "user equal", "a", a.AttachedInfo, "b", b.AttachedInfo)
+//	}
+//	if a.GlobalRecvMsgOpt != b.GlobalRecvMsgOpt {
+//		log.ZDebug(context.Background(), "user equal", "a", a.GlobalRecvMsgOpt, "b", b.GlobalRecvMsgOpt)
+//	}
+//	if a.AppMangerLevel != b.AppMangerLevel {
+//		log.ZDebug(context.Background(), "user equal", "a", a.AppMangerLevel, "b", b.AppMangerLevel)
+//	}
+//	return a.UserID == b.UserID && a.Nickname == b.Nickname && a.FaceURL == b.FaceURL &&
+//		a.CreateTime == b.CreateTime && a.AttachedInfo == b.AttachedInfo &&
+//		a.Ex == b.Ex && a.GlobalRecvMsgOpt == b.GlobalRecvMsgOpt && a.AppMangerLevel == b.AppMangerLevel
+//}
+
+// DoNotification handles incoming notifications for the user.
+func (u *User) DoNotification(ctx context.Context, msg *sdkws.MsgData, cache func(userID string, statusMap *userPb.OnlineStatus)) {
+	log.ZDebug(ctx, "user notification", "msg", *msg)
 	if u.listener == nil {
-		log.Error(operationID, "listener == nil")
+		// log.Error(operationID, "listener == nil")
 		return
 	}
-
 	if msg.SendTime < u.loginTime {
-		log.Warn(operationID, "ignore notification ", msg.ClientMsgID, msg.ServerMsgID, msg.Seq, msg.ContentType)
+		log.ZWarn(ctx, "ignore notification ", nil, "msg", *msg)
 		return
 	}
 	go func() {
 		switch msg.ContentType {
 		case constant.UserInfoUpdatedNotification:
-			u.userInfoUpdatedNotification(msg, operationID)
+			u.userInfoUpdatedNotification(ctx, msg)
+		case constant.UserStatusChangeNotification:
+			u.userStatusChangeNotification(ctx, msg, cache)
 		default:
-			log.Error(operationID, "type failed ", msg.ClientMsgID, msg.ServerMsgID, msg.ContentType)
+			// log.Error(operationID, "type failed ", msg.ClientMsgID, msg.ServerMsgID, msg.ContentType)
 		}
 	}()
 }
 
-func (u *User) userInfoUpdatedNotification(msg *api.MsgData, operationID string) {
-	log.NewInfo(operationID, utils.GetSelfFuncName(), "args: ", msg.ClientMsgID, msg.ServerMsgID)
-	var detail api.UserInfoUpdatedTips
-	if err := comm.UnmarshalTips(msg, &detail); err != nil {
-		log.Error(operationID, "comm.UnmarshalTips failed ", err.Error(), msg.Content)
+// userInfoUpdatedNotification handles notifications about updated user information.
+func (u *User) userInfoUpdatedNotification(ctx context.Context, msg *sdkws.MsgData) {
+	log.ZDebug(ctx, "userInfoUpdatedNotification", "msg", *msg)
+	tips := sdkws.UserInfoUpdatedTips{}
+	if err := utils.UnmarshalNotificationElem(msg.Content, &tips); err != nil {
+		log.ZError(ctx, "comm.UnmarshalTips failed", err, "msg", msg.Content)
 		return
 	}
-	if detail.UserID == u.loginUserID {
-		log.Info(operationID, "detail.UserID == u.loginUserID, SyncLoginUserInfo", detail.UserID)
-		u.SyncLoginUserInfo(operationID)
+
+	if tips.UserID == u.loginUserID {
+		u.SyncLoginUserInfo(ctx)
 	} else {
-		log.Info(operationID, "detail.UserID != u.loginUserID, do nothing", detail.UserID, u.loginUserID)
+		log.ZDebug(ctx, "detail.UserID != u.loginUserID, do nothing", "detail.UserID", tips.UserID, "u.loginUserID", u.loginUserID)
 	}
 }
 
-func (u *User) SyncLoginUserInfo(operationID string) {
-	log.NewInfo(operationID, utils.GetSelfFuncName(), "args: ")
-	svr, err := u.GetSelfUserInfoFromSvr(operationID)
-	if err != nil {
-		log.Error(operationID, "GetSelfUserInfoFromSvr failed", err.Error())
+// userStatusChangeNotification get subscriber status change callback
+func (u *User) userStatusChangeNotification(ctx context.Context, msg *sdkws.MsgData, c func(userID string, statusMap *userPb.OnlineStatus)) {
+	log.ZDebug(ctx, "userStatusChangeNotification", "msg", *msg)
+	tips := sdkws.UserStatusChangeTips{}
+	if err := utils.UnmarshalNotificationElem(msg.Content, &tips); err != nil {
+		log.ZError(ctx, "comm.UnmarshalTips failed", err, "msg", msg.Content)
 		return
 	}
-	onServer := common.TransferToLocalUserInfo(svr)
-	onLocal, err := u.GetLoginUser(u.loginUserID)
+	u.SyncUserStatus(ctx, tips.FromUserID, tips.ToUserID, tips.Status, tips.PlatformID, c)
+}
+
+// GetUsersInfoFromSvr retrieves user information from the server.
+func (u *User) GetUsersInfoFromSvr(ctx context.Context, userIDs []string) ([]*model_struct.LocalUser, error) {
+	resp, err := util.CallApi[userPb.GetDesignateUsersResp](ctx, constant.GetUsersInfoRouter, userPb.GetDesignateUsersReq{UserIDs: userIDs})
 	if err != nil {
-		log.Warn(operationID, "GetLoginUser failed ", err.Error())
-		onLocal = &model_struct.LocalUser{}
+		return nil, sdkerrs.Warp(err, "GetUsersInfoFromSvr failed")
 	}
-	if !cmp.Equal(onServer, onLocal) {
-		if onLocal.UserID == "" {
-			if err = u.InsertLoginUser(onServer); err != nil {
-				log.Error(operationID, "InsertLoginUser failed ", *onServer, err.Error())
-				return
-			}
+	return util.Batch(ServerUserToLocalUser, resp.UsersInfo), nil
+}
 
-		} else {
-			err = u.UpdateLoginUserByMap(onServer, map[string]interface{}{"name": onServer.Nickname, "face_url": onServer.FaceURL,
-				"gender": onServer.Gender, "phone_number": onServer.PhoneNumber, "birth_time": onServer.BirthTime, "email": onServer.Email, "create_time": onServer.CreateTime, "app_manger_level": onServer.AppMangerLevel, "ex": onServer.Ex, "attached_info": onServer.AttachedInfo, "global_recv_msg_opt": onServer.GlobalRecvMsgOpt})
-			fmt.Println("UpdateLoginUser ", *onServer, svr)
-			if err != nil {
-				log.Error(operationID, "UpdateLoginUser failed ", *onServer, err.Error())
-				return
-			}
-		}
-		callbackData := sdk.SelfInfoUpdatedCallback(*onServer)
-		if u.listener == nil {
-			log.Error(operationID, "u.listener == nil")
-			return
-		}
-		u.listener.OnSelfInfoUpdated(utils.StructToJsonString(callbackData))
-		log.Info(operationID, "OnSelfInfoUpdated", utils.StructToJsonString(callbackData))
-		if onLocal.Nickname == onServer.Nickname && onLocal.FaceURL == onServer.FaceURL {
-			log.NewInfo(operationID, "OnSelfInfoUpdated nickname faceURL unchanged", callbackData)
-			return
-		}
-		_ = common.TriggerCmdUpdateMessage(common.UpdateMessageNode{Action: constant.UpdateMsgFaceUrlAndNickName, Args: common.UpdateMessageInfo{UserID: callbackData.UserID, FaceURL: callbackData.FaceURL, Nickname: callbackData.Nickname}}, u.conversationCh)
-
+// GetSingleUserFromSvr retrieves user information from the server.
+func (u *User) GetSingleUserFromSvr(ctx context.Context, userID string) (*model_struct.LocalUser, error) {
+	users, err := u.GetUsersInfoFromSvr(ctx, []string{userID})
+	if err != nil {
+		return nil, err
 	}
+	if len(users) > 0 {
+		return users[0], nil
+	}
+	return nil, sdkerrs.ErrUserIDNotFound.Wrap(fmt.Sprintf("getSelfUserInfo failed, userID: %s not exist", userID))
 }
 
-func (u *User) GetUsersInfoFromSvr(callback open_im_sdk_callback.Base, UserIDList sdk.GetUsersInfoParam, operationID string) []*api.PublicUserInfo {
-	apiReq := api.GetUsersInfoReq{}
-	apiReq.OperationID = operationID
-	apiReq.UserIDList = UserIDList
-	apiResp := api.GetUsersInfoResp{}
-	u.p.PostFatalCallback(callback, constant.GetUsersInfoRouter, apiReq, &apiResp.UserInfoList, apiReq.OperationID)
-	return apiResp.UserInfoList
-}
-
-func (u *User) GetUsersInfoFromSvrNoCallback(UserIDList sdk.GetUsersInfoParam, operationID string) ([]*api.PublicUserInfo, error) {
-	apiReq := api.GetUsersInfoReq{}
-	apiReq.OperationID = operationID
-	apiReq.UserIDList = UserIDList
-	apiResp := api.GetUsersInfoResp{}
-	err := u.p.PostReturn(constant.GetUsersInfoRouter, apiReq, &apiResp.UserInfoList)
-	return apiResp.UserInfoList, err
-}
-
-func (u *User) GetUsersInfoFromCacheSvr(UserIDList sdk.GetUsersInfoParam, operationID string) ([]*api.PublicUserInfo, error) {
-	apiReq := api.GetUsersInfoReq{}
-	apiReq.OperationID = operationID
-	apiReq.UserIDList = UserIDList
-	apiResp := api.GetUsersInfoResp{}
-	err := u.p.PostReturn(constant.GetUsersInfoFromCacheRouter, apiReq, &apiResp.UserInfoList)
-	return apiResp.UserInfoList, err
-}
-
-func (u *User) getSelfUserInfo(callback open_im_sdk_callback.Base, operationID string) sdk.GetSelfUserInfoCallback {
-	userInfo, errLocal := u.GetLoginUser(u.loginUserID)
+// getSelfUserInfo retrieves the user's information.
+func (u *User) getSelfUserInfo(ctx context.Context) (*model_struct.LocalUser, error) {
+	userInfo, errLocal := u.GetLoginUser(ctx, u.loginUserID)
 	if errLocal != nil {
-		svr, errServer := u.GetSelfUserInfoFromSvr(operationID)
+		srvUserInfo, errServer := u.GetServerUserInfo(ctx, []string{u.loginUserID})
 		if errServer != nil {
-			log.Error(operationID, "GetSelfUserInfoFromSvr failed", errServer.Error())
-			common.CheckDBErrCallback(callback, errServer, operationID)
+			return nil, errServer
 		}
-		userInfo = common.TransferToLocalUserInfo(svr)
+		if len(srvUserInfo) == 0 {
+			return nil, sdkerrs.ErrUserIDNotFound
+		}
+		userInfo = ServerUserToLocalUser(srvUserInfo[0])
+		_ = u.InsertLoginUser(ctx, userInfo)
 	}
-	return userInfo
+	return userInfo, nil
 }
 
-func (u *User) updateSelfUserInfo(callback open_im_sdk_callback.Base, userInfo sdk.SetSelfUserInfoParam, operationID string) {
-	apiReq := api.UpdateSelfUserInfoReq{}
-	apiReq.OperationID = operationID
-	apiReq.ApiUserInfo = api.ApiUserInfo(userInfo)
-	apiReq.UserID = u.loginUserID
-	u.p.PostFatalCallback(callback, constant.UpdateSelfUserInfoRouter, apiReq, nil, apiReq.OperationID)
-	u.SyncLoginUserInfo(operationID)
+// updateSelfUserInfo updates the user's information.
+func (u *User) updateSelfUserInfo(ctx context.Context, userInfo *sdkws.UserInfo) error {
+	userInfo.UserID = u.loginUserID
+	if err := util.ApiPost(ctx, constant.UpdateSelfUserInfoRouter, userPb.UpdateUserInfoReq{UserInfo: userInfo}, nil); err != nil {
+		return err
+	}
+	_ = u.SyncLoginUserInfo(ctx)
+	return nil
 }
 
-func (u *User) GetSelfUserInfoFromSvr(operationID string) (*api.UserInfo, error) {
-	log.Debug(operationID, utils.GetSelfFuncName())
-	apiReq := api.GetSelfUserInfoReq{}
-	apiReq.OperationID = operationID
-	apiReq.UserID = u.loginUserID
-	apiResp := api.GetSelfUserInfoResp{UserInfo: &api.UserInfo{}}
-	err := u.p.PostReturn(constant.GetSelfUserInfoRouter, apiReq, &apiResp.UserInfo)
+// ParseTokenFromSvr parses a token from the server.
+func (u *User) ParseTokenFromSvr(ctx context.Context) (int64, error) {
+	resp, err := util.CallApi[authPb.ParseTokenResp](ctx, constant.ParseTokenRouter, authPb.ParseTokenReq{})
+	return resp.ExpireTimeSeconds, err
+}
+
+// GetServerUserInfo retrieves user information from the server.
+func (u *User) GetServerUserInfo(ctx context.Context, userIDs []string) ([]*sdkws.UserInfo, error) {
+	resp, err := util.CallApi[userPb.GetDesignateUsersResp](ctx, constant.GetUsersInfoRouter, &userPb.GetDesignateUsersReq{UserIDs: userIDs})
 	if err != nil {
-		return nil, utils.Wrap(err, apiReq.OperationID)
+		return nil, err
 	}
-	return apiResp.UserInfo, nil
+	return resp.UsersInfo, nil
 }
 
-func (u *User) DoUserNotification(msg *api.MsgData) {
-	if msg.SendID == u.loginUserID && msg.SenderPlatformID == sdk_struct.SvrConf.Platform {
-		return
-	}
-}
-
-func (u *User) ParseTokenFromSvr(operationID string) (uint32, error) {
-	apiReq := api.ParseTokenReq{}
-	apiReq.OperationID = operationID
-	apiResp := api.ParseTokenResp{}
-	err := u.p.PostReturn(constant.ParseTokenRouter, apiReq, &apiResp.ExpireTime)
+// subscribeUsersStatus Presence status of subscribed users.
+func (u *User) subscribeUsersStatus(ctx context.Context, userID string, userIDs []string) ([]*userPb.OnlineStatus, error) {
+	resp, err := util.CallApi[userPb.SubscribeOrCancelUsersStatusResp](ctx, constant.SubscribeUsersStatusRouter, &userPb.SubscribeOrCancelUsersStatusReq{
+		UserID:  userID,
+		UserIDs: userIDs,
+		Genre:   PbConstant.SubscriberUser,
+	})
 	if err != nil {
-		return 0, utils.Wrap(err, apiReq.OperationID)
+		return nil, err
 	}
-	log.Info(operationID, "apiResp.ExpireTime.ExpireTimeSeconds ", apiResp.ExpireTime)
-	return apiResp.ExpireTime.ExpireTimeSeconds, nil
+	return resp.StatusList, nil
+}
+
+// unsubscribeUsersStatus Unsubscribe a user's presence.
+func (u *User) unsubscribeUsersStatus(ctx context.Context, userID string, userIDs []string) error {
+	_, err := util.CallApi[userPb.SubscribeOrCancelUsersStatusResp](ctx, constant.UnsubscribeUsersStatusRouter, &userPb.SubscribeOrCancelUsersStatusReq{
+		UserID:  userID,
+		UserIDs: userIDs,
+		Genre:   PbConstant.Unsubscribe,
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// getSubscribeUsersStatus Get the online status of subscribers.
+func (u *User) getSubscribeUsersStatus(ctx context.Context, userID string) ([]*userPb.OnlineStatus, error) {
+	resp, err := util.CallApi[userPb.GetSubscribeUsersStatusResp](ctx, constant.GetSubscribeUsersStatusRouter, &userPb.GetSubscribeUsersStatusReq{
+		UserID: userID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.StatusList, nil
+}
+
+// getUserStatus Get the online status of users.
+func (u *User) getUserStatus(ctx context.Context, userID string, userIDs []string) ([]*userPb.OnlineStatus, error) {
+	resp, err := util.CallApi[userPb.GetUserStatusResp](ctx, constant.GetUserStatusRouter, &userPb.GetUserStatusReq{
+		UserID:  userID,
+		UserIDs: userIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.StatusList, nil
 }

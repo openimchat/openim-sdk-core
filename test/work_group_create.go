@@ -1,3 +1,17 @@
+// Copyright © 2023 OpenIM SDK. All rights reserved.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package test
 
 import (
@@ -9,6 +23,8 @@ import (
 	"open_im_sdk/pkg/utils"
 	"sync"
 	"time"
+
+	"github.com/OpenIMSDK/protocol/sdkws"
 )
 
 var (
@@ -74,7 +90,7 @@ func CreateWorkGroup(number int) string {
 		} else {
 			type CreateGroupResp struct {
 				server_api_params.CommResp
-				GroupInfo server_api_params.GroupInfo `json:"data"`
+				GroupInfo sdkws.GroupInfo `json:"data"`
 			}
 
 			var result CreateGroupResp
@@ -106,7 +122,7 @@ func CreateWorkGroup(number int) string {
 	//var wg sync.WaitGroup
 	//for _, v := range allUserID {
 	//	wg.Add(1)
-	//	go func(uID, gID string) {
+	//	go funcation(uID, gID string) {
 	//		InviteToGroup(uID, gID)
 	//		wg.Done()
 	//	}(v, groupID)

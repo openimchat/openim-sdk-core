@@ -1,36 +1,46 @@
 module open_im_sdk
 
-go 1.15
+go 1.18
 
 require (
-	github.com/aliyun/aliyun-oss-go-sdk v2.2.1+incompatible
 	github.com/antonfisher/nested-logrus-formatter v1.3.1
-	github.com/aws/aws-sdk-go-v2 v1.16.7
-	github.com/aws/aws-sdk-go-v2/config v1.15.14
-	github.com/aws/aws-sdk-go-v2/credentials v1.12.9
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.27.1
-	github.com/baiyubin/aliyun-sts-go-sdk v0.0.0-20180326062324-cfa1a18b161f // indirect
-	github.com/go-playground/validator/v10 v10.10.0
-	github.com/golang/protobuf v1.5.2
-	github.com/google/go-cmp v0.5.8
+	github.com/golang/protobuf v1.5.3
 	github.com/gorilla/websocket v1.4.2
-	github.com/jinzhu/copier v0.3.4
-	github.com/jonboulle/clockwork v0.2.2 // indirect
-	github.com/klauspost/compress v1.15.9
+	github.com/jinzhu/copier v0.3.5
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
-	github.com/lestrrat-go/strftime v1.0.5 // indirect
-	github.com/minio/minio-go/v7 v7.0.43
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pkg/errors v0.9.1
 	github.com/rifflock/lfshook v0.0.0-20180920164130-b9218ef580f5
-	github.com/satori/go.uuid v1.2.0 // indirect
-	github.com/shamsher31/goimgext v1.0.0 // indirect
-	github.com/shamsher31/goimgtype v1.0.0
-	github.com/sirupsen/logrus v1.9.0
-	github.com/tencentyun/cos-go-sdk-v5 v0.7.33
+	github.com/sirupsen/logrus v1.9.2
 	github.com/tencentyun/qcloud-cos-sts-sdk v0.0.0-20220106031843-2efeb10ca2f6
-	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65 // indirect
-	google.golang.org/protobuf v1.28.0
+	google.golang.org/protobuf v1.31.0 // indirect
 	gorm.io/driver/sqlite v1.3.6
+	nhooyr.io/websocket v1.8.7
+)
+
+require golang.org/x/net v0.11.0
+
+require (
+	github.com/OpenIMSDK/protocol v0.0.9
+	github.com/OpenIMSDK/tools v0.0.5
+	github.com/google/go-cmp v0.5.9
+	golang.org/x/image v0.9.0
 	gorm.io/gorm v1.23.8
+)
+
+require (
+	github.com/bwmarrin/snowflake v0.3.0 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
+	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/klauspost/compress v1.16.5 // indirect
+	github.com/lestrrat-go/strftime v1.0.6 // indirect
+	github.com/mattn/go-sqlite3 v1.14.12 // indirect
+	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
+	go.uber.org/atomic v1.7.0 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.24.0 // indirect
+	golang.org/x/sys v0.9.0 // indirect
+	golang.org/x/text v0.11.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20230717213848-3f92550aa753 // indirect
+	google.golang.org/grpc v1.56.2 // indirect
 )
